@@ -118,9 +118,10 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                 throw new BizIllegalException(TradeErrorInfo.COURSE_NOT_FOR_SALE);
             }
             // 2.2.检查课程是否过期
-            if(courseInfo.getPurchaseEndTime().isBefore(now)){
-                throw new BizIllegalException(TradeErrorInfo.COURSE_EXPIRED);
-            }
+//            yzp:注销掉，测试用，
+//            if(courseInfo.getPurchaseEndTime().isBefore(now)){
+//                throw new BizIllegalException(TradeErrorInfo.COURSE_EXPIRED);
+//            }
         }
         return courseInfos;
     }
@@ -161,7 +162,6 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
 
         // 4.写入数据库
         saveOrderAndDetails(order, CollUtils.singletonList(detail));
-
         // 5.发送MQ消息，通知报名成功
         rabbitMqHelper.send(
                 MqConstants.Exchange.ORDER_EXCHANGE,
