@@ -15,8 +15,8 @@ import com.tianji.learning.mapper.LearningRecordMapper;
 import com.tianji.learning.service.ILearningLessonService;
 import com.tianji.learning.service.ILearningRecordService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.tianji.learning.utils.LearningRecordDelayTaskHandler;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -36,6 +36,7 @@ public class LearningRecordServiceImpl extends ServiceImpl<LearningRecordMapper,
 
     private final ILearningLessonService lessonService;
     private final CourseClient courseClient;
+    private final LearningRecordDelayTaskHandler delayTaskHandler;
 
     @Override
     public LearningLessonDTO queryLearningRecordByCourse(Long courseId) {
@@ -75,18 +76,21 @@ public class LearningRecordServiceImpl extends ServiceImpl<LearningRecordMapper,
             throw new RuntimeException("用户未登录");
         }
 //        2.处理学习记录
-        boolean isFinished = false;
+        boolean isFirstFinished = false;
         if (dto.getSectionType().equals(SectionType.VIDEO)) {
-            isFinished = handleVideoRecord(dto, user);
+            isFirstFinished = handleVideoRecord(dto, user);
         } else {
-            isFinished = handleExamRecord(dto, user);
+            isFirstFinished = handleExamRecord(dto, user);
         }
-//        3.更新课表信息
-        handleLessonDate(dto, isFinished);
+//  不是第一次学完，不需要更新课表信息
+        if (!isFirstFinished){
+            return;
+        }
+        handleLessonDate(dto);
 
     }
 
-    private void handleLessonDate(LearningRecordFormDTO dto, boolean isFinished) {
+    private void handleLessonDate(LearningRecordFormDTO dto) {
 //        1.查询课表learning_lesson
         LearningLesson lesson = lessonService.getById(dto.getLessonId());
         if (lesson == null) {
@@ -95,7 +99,7 @@ public class LearningRecordServiceImpl extends ServiceImpl<LearningRecordMapper,
 
         boolean allFinished = false;
 //        2.判断是否为第一次学完
-        if (isFinished) {
+
 //        3.远程调用课程服务，得到课程信息
             CourseFullInfoDTO cinfo = courseClient.getCourseInfoById(lesson.getCourseId(), false, false);
             if (cinfo == null) {
@@ -104,7 +108,6 @@ public class LearningRecordServiceImpl extends ServiceImpl<LearningRecordMapper,
             Integer sectionNum = cinfo.getSectionNum();
 //            4.如果isFinished = true，表示本小节是第一次学完，判断该用户该课程是否全部学完
             allFinished = lesson.getLearnedSections() + 1 >= sectionNum;
-        }
 //        5.更新课表信息
         boolean updateResult = lessonService.lambdaUpdate()
                 .set(lesson.getStatus() == LessonStatus.NOT_BEGIN, LearningLesson::getStatus, LessonStatus.LEARNING.getValue())
@@ -121,10 +124,12 @@ public class LearningRecordServiceImpl extends ServiceImpl<LearningRecordMapper,
 
     private boolean handleVideoRecord(LearningRecordFormDTO dto, Long user) {
 //        1.查询旧的学习记录
-        LearningRecord learningRecord = this.lambdaQuery()
-                .eq(LearningRecord::getLessonId, dto.getLessonId())
-                .eq(LearningRecord::getSectionId, dto.getSectionId())
-                .one();
+//        LearningRecord learningRecord = this.lambdaQuery()
+//                .eq(LearningRecord::getLessonId, dto.getLessonId())
+//                .eq(LearningRecord::getSectionId, dto.getSectionId())
+//                .one();
+//        改进：从缓存中获取学习记录
+        LearningRecord learningRecord = queryCacheRecord(dto.getLessonId(), dto.getSectionId());
 
 //        2.判断是否存在
 //        3.如果不存在，新增
@@ -139,22 +144,53 @@ public class LearningRecordServiceImpl extends ServiceImpl<LearningRecordMapper,
         }
 
 //        4.如果存在，更新学习记录moment字段，判断是否完成
-//        判断是否第一次学完，isFinished = true表示第一次学完
-        boolean isFinished = !learningRecord.getFinished() && dto.getMoment() * 2 >= dto.getDuration();
-
+//        判断是否第一次学完，isFirstFinished = true表示第一次学完
+        boolean isFirstFinished = !learningRecord.getFinished() && dto.getMoment() * 2 >= dto.getDuration();
+        if (!isFirstFinished){
+            LearningRecord record = new LearningRecord();
+            record.setLessonId(dto.getLessonId());
+            record.setSectionId(dto.getSectionId());
+            record.setId(learningRecord.getId());
+            record.setMoment(dto.getMoment());
+            record.setFinished(learningRecord.getFinished());
+            delayTaskHandler.addLearningRecordTask(record);
+//           返回，不更新数据库
+            return false;
+        }
+//        不是第一次学完，更新数据库
         boolean updateResult = this.lambdaUpdate()
                 .set(LearningRecord::getMoment, dto.getMoment())
-                .set(isFinished, LearningRecord::getFinished, true)
-                .set(isFinished, LearningRecord::getFinishTime, dto.getCommitTime())
+                .set(isFirstFinished, LearningRecord::getFinished, true)
+                .set(isFirstFinished, LearningRecord::getFinishTime, dto.getCommitTime())
                 .eq(LearningRecord::getId, learningRecord.getId())
                 .update();
         if (!updateResult) {
             throw new RuntimeException("更新学习记录失败");
         }
+//      若更新数据库，需要清理redis缓存
+        delayTaskHandler.cleanRecordCache(dto.getLessonId(), dto.getSectionId());
+        return true;
 
+    }
 
-        return isFinished;
-
+    private LearningRecord queryCacheRecord(Long lessonId, Long sectionId) {
+//      1.查询缓存
+        LearningRecord recordCache = delayTaskHandler.readRecordCache(lessonId, sectionId);
+//        2.命中返回
+        if (recordCache != null) {
+            return recordCache;
+        }
+//        3.未命中查询数据库
+        LearningRecord recordDb = this.lambdaQuery()
+                .eq(LearningRecord::getLessonId, lessonId)
+                .eq(LearningRecord::getSectionId, sectionId)
+                .one();
+        if (recordDb == null){
+            return null;
+        }
+//        4.存入缓存
+        delayTaskHandler.writeRecordCache(recordDb);
+        return recordDb;
     }
 
     private boolean handleExamRecord(LearningRecordFormDTO dto, Long user) {
