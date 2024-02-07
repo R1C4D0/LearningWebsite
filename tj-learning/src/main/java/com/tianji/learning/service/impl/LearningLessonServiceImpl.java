@@ -161,4 +161,27 @@ public class LearningLessonServiceImpl extends ServiceImpl<LearningLessonMapper,
 
     }
 
+    @Override
+    public Long isLessonValid(Long courseId) {
+//        1.获取当前登录的用户
+        Long user = UserContext.getUser();
+        if (user == null) {
+            throw new BadRequestException("用户未登录");
+        }
+//        2.查询learning_lesson表中是否存在该课程
+        LearningLesson lesson = this.lambdaQuery().eq(LearningLesson::getUserId, user)
+                .eq(LearningLesson::getCourseId, courseId)
+                .one();
+        if (lesson == null) {
+            return null;
+        }
+//        3.判断课程是否有效
+        LocalDateTime expireTime = lesson.getExpireTime();
+        if (expireTime != null && expireTime.isBefore(LocalDateTime.now())) {
+            return null;
+        }
+        return lesson.getId();
+
+    }
+
 }
