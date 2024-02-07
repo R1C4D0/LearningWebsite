@@ -1,7 +1,10 @@
 package com.tianji.learning.service.impl;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.tianji.api.client.course.CatalogueClient;
 import com.tianji.api.client.course.CourseClient;
+import com.tianji.api.dto.course.CataSimpleInfoDTO;
+import com.tianji.api.dto.course.CourseFullInfoDTO;
 import com.tianji.api.dto.course.CourseSimpleInfoDTO;
 import com.tianji.common.domain.dto.PageDTO;
 import com.tianji.common.domain.query.PageQuery;
@@ -12,6 +15,7 @@ import com.tianji.common.utils.CollUtils;
 import com.tianji.common.utils.UserContext;
 import com.tianji.learning.domain.po.LearningLesson;
 import com.tianji.learning.domain.vo.LearningLessonVO;
+import com.tianji.learning.enums.LessonStatus;
 import com.tianji.learning.mapper.LearningLessonMapper;
 import com.tianji.learning.service.ILearningLessonService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -40,6 +44,7 @@ import java.util.stream.Collectors;
 public class LearningLessonServiceImpl extends ServiceImpl<LearningLessonMapper, LearningLesson> implements ILearningLessonService {
 
     final CourseClient courseClient;
+    final CatalogueClient catalogueClient;
 
     @Override
     public void addUserLesson(Long userId, List<Long> courseIds) {
@@ -104,4 +109,56 @@ public class LearningLessonServiceImpl extends ServiceImpl<LearningLessonMapper,
         return PageDTO.of(page, voList);
 
     }
+
+    @Override
+    public LearningLessonVO queryMyCurrentLesson() {
+//          1.获取当前登录的用户
+        Long user = UserContext.getUser();
+        if (user == null) {
+            throw new BadRequestException("用户未登录");
+        }
+
+//         2.查询正在学习的课程 select * from xx where user_id = #{userId} AND status = 1 order by latest_learn_time limit 1
+        LearningLesson lesson = this.lambdaQuery().eq(LearningLesson::getUserId, user)
+                .eq(LearningLesson::getStatus, LessonStatus.LEARNING)
+                .orderByDesc(LearningLesson::getLatestLearnTime)
+                .last("limit 1").one();
+        if (lesson == null) {
+            return null;
+        }
+
+        // 3.远程调用课程服务，给VO中的课程名 封面 章节数量赋值
+        CourseFullInfoDTO courseinfo = courseClient.getCourseInfoById(lesson.getCourseId(), false, false);
+
+        if (courseinfo == null) {
+            throw new BizIllegalException("课程信息不存在");
+        }
+
+        // 4.查询当前用户课表中 已报名的总课程数
+        Integer count = this.lambdaQuery().eq(LearningLesson::getUserId, user).count();
+
+
+        // 5.通过feign远程调用课程服务，获取小节名称和编号
+        Long latestSectionId = lesson.getLatestSectionId();
+        List<CataSimpleInfoDTO> cataSimpleInfoDTOS = catalogueClient.batchQueryCatalogue(CollUtils.singletonList(latestSectionId));
+        if (CollUtils.isEmpty(cataSimpleInfoDTOS)) {
+            throw new BizIllegalException("小节信息不存在");
+        }
+
+        // 6.封装到VO返回
+
+        LearningLessonVO vo = BeanUtils.copyBean(lesson, LearningLessonVO.class);
+        vo.setCourseName(courseinfo.getName());
+        vo.setCourseCoverUrl(courseinfo.getCoverUrl());
+        vo.setSections(courseinfo.getSectionNum());
+        vo.setCourseAmount(count);
+//        设置最新学习的小节信息
+        CataSimpleInfoDTO simpleInfoDTO = cataSimpleInfoDTOS.get(0);
+        vo.setLatestSectionIndex(simpleInfoDTO.getCIndex());
+        vo.setLatestSectionName(simpleInfoDTO.getName());
+
+        return vo;
+
+    }
+
 }

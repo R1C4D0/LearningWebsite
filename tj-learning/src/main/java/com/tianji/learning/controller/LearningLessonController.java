@@ -36,4 +36,10 @@ public class LearningLessonController {
 
     }
 
+    @GetMapping("/now")
+    @ApiOperation("查询当前用户正在学习的课程")
+    public LearningLessonVO queryMyCurrentLesson(){
+        return lessonService.queryMyCurrentLesson();
+    }
+
 }
