@@ -15,8 +15,11 @@ import com.tianji.remark.service.ILikedRecordService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.core.ZSetOperations;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -72,17 +75,49 @@ public class LikedRecordRedisServiceImpl extends ServiceImpl<LikedRecordMapper, 
         if (CollUtils.isEmpty(bizIds)) {
             return CollUtils.emptySet();
         }
-//      1.获取当前登录用户
+//        1.获取当前登录用户
         Long userId = UserContext.getUser();
-//        2.查询点赞记录表 in bizIds
-        List<LikedRecord> list = this.lambdaQuery()
-                .in(LikedRecord::getBizId, bizIds)
-                .eq(LikedRecord::getUserId, userId)
-                .list();
-//        3.将List转换为Set
-        return list.stream().map(LikedRecord::getBizId).collect(Collectors.toSet());
+//        2.查询当前用户对bizIds的点赞状态
+        Set<Long> likedBizIds = new HashSet<>();
+        for (Long bizId : bizIds) {
+            Boolean isMember = redisTemplate.opsForSet().isMember(RedisConstants.LIKE_BIZ_KEY_PREFIX + bizId, userId.toString());
+            if (isMember != null && isMember) {
+                likedBizIds.add(bizId);
+            }
+        }
+        return likedBizIds;
 
 
+
+    }
+
+    @Override
+    public void readLikedTimesAndSendMessage(String bizType, int maxBizSize) {
+//        1.拼装key likes:times:type:QA likes:times:type:NOTE
+//        读取并移除Redis中缓存的点赞总数
+        String bizTypeTotalLikeKey = RedisConstants.LIKES_TIMES_KEY_PREFIX + bizType;
+        List<LikedTimesDTO> list = new ArrayList<>();
+//        2.从redis的zset结构中，按分数排序取maxBizSize的业务点赞信息
+        Set<ZSetOperations.TypedTuple<String>> tuples = redisTemplate.opsForZSet().popMin(bizType, maxBizSize);
+        if (CollUtils.isEmpty(tuples)) {
+            return;
+        }
+        for (ZSetOperations.TypedTuple<String> tuple : tuples) {
+            String bizId = tuple.getValue();
+            Double likeTimes = tuple.getScore();
+            if (StringUtils.isBlank(bizId) || likeTimes == null) {
+                continue;
+            }
+//      3.封装LikedTimesDTO作为消息数据
+            list.add(new LikedTimesDTO(Long.valueOf(bizId), likeTimes.intValue()));
+        }
+//        MQ发送消息
+        log.debug("批量发送点赞消息 消息内容{}", list);
+        rabbitMqHelper.send(
+                MqConstants.Exchange.LIKE_RECORD_EXCHANGE,
+                StringUtils.format(MqConstants.Key.LIKED_TIMES_KEY_TEMPLATE, bizType),
+                list
+        );
     }
 
     private boolean unliked(LikeRecordFormDTO dto, Long userId) {
