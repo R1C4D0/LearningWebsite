@@ -13,7 +13,7 @@ public class RemarkClientFallBack implements FallbackFactory<RemarkClient> {
       log.error("调用remark-service服务降级了", cause);
       return new RemarkClient() {
           @Override
-          public Set<Long> getLikeStatusByBizIds(Set<Long> bizIds) {
+          public Set<Long> isBizLiked(Set<Long> bizIds) {
               return null;
           }
       };

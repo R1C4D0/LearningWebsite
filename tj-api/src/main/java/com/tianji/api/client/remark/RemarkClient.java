@@ -13,5 +13,5 @@ public interface RemarkClient {
 
 
     @GetMapping("/likes/list")
-    public Set<Long> getLikeStatusByBizIds(@RequestParam("bizIds") Set<Long> bizIds);
+    public Set<Long> isBizLiked(@RequestParam("bizIds") Set<Long> bizIds);
 }
