@@ -74,6 +74,38 @@ public class SignRecordServiceImpl implements ISignRecordService {
         return vo;
     }
 
+    @Override
+    public Byte[] querySignRecords() {
+        Long userId = UserContext.getUser();
+//        拼接key  sign:uid:userId:yyyyMM
+        LocalDate now = LocalDate.now();
+        String key = RedisConstants.SIGN_RECORD_KEY_PREFIX
+                + userId
+                + now.format(DateUtils.SIGN_DATE_SUFFIX_FORMATTER);
+//      利用redis bitfield命令查询本月第一天到今天的签到记录
+        int dayOfMonth = now.getDayOfMonth();
+//        bitField命令返回的是十进制 List中只有一个数字
+        List<Long> bitFields = redisTemplate.opsForValue().bitField(key, BitFieldSubCommands.create().get(
+                BitFieldSubCommands.BitFieldType.unsigned(dayOfMonth)).valueAt(0));
+        if (CollUtils.isEmpty(bitFields)) {
+            return new Byte[0];
+        }
+        Long num = bitFields.get(0);
+        int offset = dayOfMonth - 1;
+//        利用与运算和位移运算得到签到情况
+        Byte[] result = new Byte[dayOfMonth];
+        while (offset >= 0) {
+            result[offset] = (byte) (num & 1);
+            num >>>= 1;
+            offset--;
+        }
+        return result;
+
+
+
+
+    }
+
     /**
      * 计算连续签到天数
      *

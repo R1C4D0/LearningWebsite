@@ -11,6 +11,7 @@ import com.tianji.learning.mapper.PointsRecordMapper;
 import com.tianji.learning.mq.message.SignInMessage;
 import com.tianji.learning.service.IPointsRecordService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -28,11 +29,13 @@ import java.util.Map;
  * @author yzp
  * @since 2024-02-15
  */
+@Slf4j
 @Service
 public class PointsRecordServiceImpl extends ServiceImpl<PointsRecordMapper, PointsRecord> implements IPointsRecordService {
 
     @Override
     public void addPointsRecord(SignInMessage message, PointsRecordType type) {
+        log.debug("收到消息：{}", message);
 //        0. 检验
         if (message.getUserId() == null || message.getPoints() == null) {
             return;
@@ -68,6 +71,7 @@ public class PointsRecordServiceImpl extends ServiceImpl<PointsRecordMapper, Poi
             pointsRecord.setUserId(message.getUserId());
             pointsRecord.setPoints(realPoints);
             pointsRecord.setType(type);
+            log.debug("保存record:{}", pointsRecord);
             this.save(pointsRecord);
         }
     }
