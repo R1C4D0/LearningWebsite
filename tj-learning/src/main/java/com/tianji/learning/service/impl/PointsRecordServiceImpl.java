@@ -41,13 +41,13 @@ public class PointsRecordServiceImpl extends ServiceImpl<PointsRecordMapper, Poi
             return;
         }
         int realPoints = message.getPoints();
-//        1.判断该积分类型是否有上限    type.getMaxPoints() > 0？
+//        1.判断该积分类型是否有上限
         int maxPoints = type.getMaxPoints();
         if (maxPoints > 0) {
+//            如果有上限 查询当天该用户该类型 今日已获得的积分
             LocalDateTime now = LocalDateTime.now();
             LocalDateTime dayStartTime = DateUtils.getDayStartTime(now);
             LocalDateTime dayEndTime = DateUtils.getDayEndTime(now);
-//            如果有上限 查询当天该用户该类型 今日已获得的积分
             QueryWrapper<PointsRecord> wrapper = new QueryWrapper<>();
             wrapper.select("sum(points) as totalPoints");
             wrapper.eq("user_id", message.getUserId());
@@ -59,21 +59,22 @@ public class PointsRecordServiceImpl extends ServiceImpl<PointsRecordMapper, Poi
                 BigDecimal totalPoints = (BigDecimal) map.get("totalPoints");
                 currentPoints = totalPoints.intValue();
             }
-            if (currentPoints >= maxPoints) {
+            if (currentPoints >= maxPoints) {//如果已获得的积分 >= 上限   直接返回
                 return;
             }
-//            如果已获得的积分 + 本次获得的积分 > 上限
+//            如果已获得的积分 + 本次获得的积分 > 上限   则本次获得的积分 = 上限 - 已获得的积分
             if (currentPoints + message.getPoints() > maxPoints) {
                 realPoints = maxPoints - currentPoints;
             }
-//            保存积分
+        }
+//        如果没有上限 直接保存积分记录
+//        2.保存积分记录
             PointsRecord pointsRecord = new PointsRecord();
             pointsRecord.setUserId(message.getUserId());
             pointsRecord.setPoints(realPoints);
             pointsRecord.setType(type);
             log.debug("保存record:{}", pointsRecord);
             this.save(pointsRecord);
-        }
     }
 
     @Override
