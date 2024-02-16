@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.tianji.common.utils.CollUtils;
 import com.tianji.common.utils.DateUtils;
 import com.tianji.common.utils.UserContext;
+import com.tianji.learning.constants.RedisConstants;
 import com.tianji.learning.domain.po.PointsRecord;
 import com.tianji.learning.domain.vo.PointsStatisticsVO;
 import com.tianji.learning.enums.PointsRecordType;
@@ -11,7 +12,9 @@ import com.tianji.learning.mapper.PointsRecordMapper;
 import com.tianji.learning.mq.message.SignInMessage;
 import com.tianji.learning.service.IPointsRecordService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -31,7 +34,10 @@ import java.util.Map;
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class PointsRecordServiceImpl extends ServiceImpl<PointsRecordMapper, PointsRecord> implements IPointsRecordService {
+
+    private final StringRedisTemplate redisTemplate;
 
     @Override
     public void addPointsRecord(SignInMessage message, PointsRecordType type) {
@@ -69,12 +75,16 @@ public class PointsRecordServiceImpl extends ServiceImpl<PointsRecordMapper, Poi
         }
 //        如果没有上限 直接保存积分记录
 //        2.保存积分记录
-            PointsRecord pointsRecord = new PointsRecord();
-            pointsRecord.setUserId(message.getUserId());
-            pointsRecord.setPoints(realPoints);
-            pointsRecord.setType(type);
-            log.debug("保存record:{}", pointsRecord);
-            this.save(pointsRecord);
+        PointsRecord pointsRecord = new PointsRecord();
+        pointsRecord.setUserId(message.getUserId());
+        pointsRecord.setPoints(realPoints);
+        pointsRecord.setType(type);
+        log.debug("保存record:{}", pointsRecord);
+        this.save(pointsRecord);
+//            3.更新总积分到Redis
+        LocalDateTime now = LocalDateTime.now();
+        String key = RedisConstants.POINTS_BOARD_KEY_PREFIX + now.format(DateUtils.POINTS_BOARD_SUFFIX_FORMATTER);
+        redisTemplate.opsForZSet().incrementScore(key, message.getUserId().toString(), realPoints);
     }
 
     @Override
