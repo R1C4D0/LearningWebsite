@@ -9,9 +9,11 @@ import com.tianji.learning.domain.po.PointsBoardSeason;
 import com.tianji.learning.service.IPointsBoardSeasonService;
 import com.tianji.learning.service.IPointsBoardService;
 import com.tianji.learning.utils.TableInfoContext;
+import com.xxl.job.core.context.XxlJobHelper;
 import com.xxl.job.core.handler.annotation.XxlJob;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -28,7 +30,13 @@ public class PointsBoardPersistentHandler {
     //  注入必须使用接口注入  若采取实现类注入时，当实现类使用@Transational注解时使用代理对象，代理对象强转兄弟类时会报错
     private final IPointsBoardService pointsBoardService;
 
+    private final StringRedisTemplate stringRedisTemplate;
+
 //    @Scheduled(cron = "0 0 3 1 * ?")//每月1号凌晨3点执行
+
+    /**
+     * 创建上个赛季的积分榜
+     */
     @XxlJob("createTableJob")
     public void createPointsBoardTableOfLastSeason() {
         log.debug("开始创建上个赛季的积分榜");
@@ -52,6 +60,7 @@ public class PointsBoardPersistentHandler {
 
     /**
      * 持久化上个赛季（上个月）的积分排行榜数据到数据库
+     * fixme 由于xxl-job的分片机制，导致后续任务链的执行时机不可控，待修复
      */
     @XxlJob("savePointsBoard2DB")//任务名字要和xxljob控制台的JobHandler名字一致
     public void savePointsBoard2DB() {
@@ -78,8 +87,10 @@ public class PointsBoardPersistentHandler {
         // 3.1.拼接KEY
         String key = RedisConstants.POINTS_BOARD_KEY_PREFIX + time.format(DateUtils.POINTS_BOARD_SUFFIX_FORMATTER);
         // 3.2.查询数据
-        int pageNo = 1;
-        int pageSize = 1000;
+        int index = XxlJobHelper.getShardIndex();//分片序号,从0开始
+        int total = XxlJobHelper.getShardTotal();//分片总数
+        int pageNo = index + 1; // 起始页，就是分片序号+1
+        int pageSize = 10;
         while (true) {
             List<PointsBoard> boardList = pointsBoardService.queryCurrentBoardList(key, pageNo, pageSize);
             if (CollUtils.isEmpty(boardList)) {//跳出循环
@@ -93,11 +104,24 @@ public class PointsBoardPersistentHandler {
             });
             // 4.2.持久化到数据库
             pointsBoardService.saveBatch(boardList);
-            // 5.翻页
-            pageNo++;
+            // 5.翻页,使用分布式任务时，需要分页查询，否则会导致数据量过大，内存溢出，每次跳过total页
+            pageNo += total;
         }
         // 任务结束，移除动态表名(ThreadLocal中的信息)
         TableInfoContext.remove();
+    }
+
+    /**
+     * 清理Redis缓存中的上个月积分榜数据
+     */
+    @XxlJob("clearPointsBoardFromRedis")
+    public void clearPointsBoardFromRedis() {
+        // 1.获取上月时间
+        LocalDateTime time = LocalDateTime.now().minusMonths(1);
+        // 2.计算key
+        String key = RedisConstants.POINTS_BOARD_KEY_PREFIX + time.format(DateUtils.POINTS_BOARD_SUFFIX_FORMATTER);
+        // 3.删除,使用unlink命令删除，不会阻塞，不会返回删除的结果,异步删除
+        stringRedisTemplate.unlink(key);
     }
 
 
