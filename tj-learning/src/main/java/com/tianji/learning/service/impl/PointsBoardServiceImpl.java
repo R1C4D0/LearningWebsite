@@ -99,7 +99,7 @@ public class PointsBoardServiceImpl extends ServiceImpl<PointsBoardMapper, Point
      * @param pageSize 每页大小
      * @return 榜单列表
      */
-    private List<PointsBoard> queryCurrentBoardList(String key, Integer pageNo, Integer pageSize) {
+    public List<PointsBoard> queryCurrentBoardList(String key, Integer pageNo, Integer pageSize) {
 //        1. 计算分页
         int from = (pageNo - 1) * pageSize;
         int end = from + pageSize - 1;
