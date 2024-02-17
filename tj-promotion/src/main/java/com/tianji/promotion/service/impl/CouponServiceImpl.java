@@ -4,20 +4,24 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.tianji.common.domain.dto.PageDTO;
 import com.tianji.common.exceptions.BadRequestException;
+import com.tianji.common.exceptions.BizIllegalException;
 import com.tianji.common.utils.BeanUtils;
 import com.tianji.common.utils.CollUtils;
 import com.tianji.common.utils.StringUtils;
 import com.tianji.promotion.domain.dto.CouponFormDTO;
+import com.tianji.promotion.domain.dto.CouponIssueFormDTO;
 import com.tianji.promotion.domain.po.Coupon;
 import com.tianji.promotion.domain.po.CouponScope;
 import com.tianji.promotion.domain.query.CouponQuery;
 import com.tianji.promotion.domain.vo.CouponPageVO;
+import com.tianji.promotion.enums.CouponStatus;
 import com.tianji.promotion.mapper.CouponMapper;
 import com.tianji.promotion.service.ICouponScopeService;
 import com.tianji.promotion.service.ICouponService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -85,5 +89,36 @@ public class CouponServiceImpl extends ServiceImpl<CouponMapper, Coupon> impleme
         List<CouponPageVO> list = BeanUtils.copyList(records, CouponPageVO.class);
         // 3.返回
         return PageDTO.of(page, list);
+    }
+
+    @Override
+    public void beginIssue(CouponIssueFormDTO dto) {
+        // 1.查询优惠券
+        Coupon coupon = this.getById(dto.getId());
+        if (coupon == null) {
+            throw new BadRequestException("优惠券不存在！");
+        }
+        // 2.判断优惠券状态，是否是暂停或待发放
+        if (coupon.getStatus() != CouponStatus.DRAFT && coupon.getStatus() != CouponStatus.PAUSE) {
+            throw new BizIllegalException("优惠券状态错误！");
+        }
+        // 3.判断是否是立刻发放
+        LocalDateTime issueBeginTime = dto.getIssueBeginTime();
+        LocalDateTime now = LocalDateTime.now();
+        boolean isBegin = issueBeginTime == null || !issueBeginTime.isAfter(now);// 是否是立刻发放
+        // 4.更新优惠券
+        // 4.1.拷贝属性到PO
+        Coupon c = BeanUtils.copyBean(dto, Coupon.class);
+        // 4.2.更新状态
+        if (isBegin) {
+            c.setStatus(CouponStatus.ISSUING);// 发放中
+            c.setIssueBeginTime(now);
+        } else {
+            c.setStatus(CouponStatus.UN_ISSUE);// 待发放
+        }
+        // 4.3.写入数据库
+        this.updateById(c);
+//        todo 兑换码生成
+
     }
 }
