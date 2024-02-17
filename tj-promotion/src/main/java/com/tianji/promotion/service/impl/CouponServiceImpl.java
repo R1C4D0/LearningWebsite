@@ -20,6 +20,7 @@ import com.tianji.promotion.service.ICouponScopeService;
 import com.tianji.promotion.service.ICouponService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -41,6 +42,7 @@ public class CouponServiceImpl extends ServiceImpl<CouponMapper, Coupon> impleme
 
 
     @Override
+    @Transactional
     public void saveCoupon(CouponFormDTO dto) {
         // 1.保存优惠券到数据库
         // 1.1.转PO
@@ -71,6 +73,7 @@ public class CouponServiceImpl extends ServiceImpl<CouponMapper, Coupon> impleme
     }
 
     @Override
+    @Transactional
     public PageDTO<CouponPageVO> queryCouponByPage(CouponQuery query) {
         Integer status = query.getStatus();
         String name = query.getName();
@@ -92,6 +95,7 @@ public class CouponServiceImpl extends ServiceImpl<CouponMapper, Coupon> impleme
     }
 
     @Override
+    @Transactional
     public void beginIssue(CouponIssueFormDTO dto) {
         // 1.查询优惠券
         Coupon coupon = this.getById(dto.getId());
