@@ -7,6 +7,9 @@ import com.tianji.promotion.domain.dto.CouponIssueFormDTO;
 import com.tianji.promotion.domain.po.Coupon;
 import com.tianji.promotion.domain.query.CouponQuery;
 import com.tianji.promotion.domain.vo.CouponPageVO;
+import com.tianji.promotion.domain.vo.CouponVO;
+
+import java.util.List;
 
 /**
  * <p>
@@ -23,4 +26,7 @@ public interface ICouponService extends IService<Coupon> {
     PageDTO<CouponPageVO> queryCouponByPage(CouponQuery query);
 
     void beginIssue(CouponIssueFormDTO dto);
+
+    List<CouponVO> queryIssuingCoupons();
+
 }
