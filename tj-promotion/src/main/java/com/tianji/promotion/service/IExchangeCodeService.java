@@ -1,6 +1,7 @@
 package com.tianji.promotion.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
+import com.tianji.promotion.domain.po.Coupon;
 import com.tianji.promotion.domain.po.ExchangeCode;
 
 /**
@@ -13,4 +14,5 @@ import com.tianji.promotion.domain.po.ExchangeCode;
  */
 public interface IExchangeCodeService extends IService<ExchangeCode> {
 
+    void asyncGenerateCode(Coupon coupon);
 }
