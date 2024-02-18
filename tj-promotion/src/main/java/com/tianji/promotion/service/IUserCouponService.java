@@ -14,4 +14,11 @@ import com.tianji.promotion.domain.po.UserCoupon;
 public interface IUserCouponService extends IService<UserCoupon> {
 
     void receiveCoupon(Long couponId);
+
+    /**
+     * 兑换码兑换优惠券
+     *
+     * @param code 兑换码
+     */
+    void exchangeCoupon(String code);
 }

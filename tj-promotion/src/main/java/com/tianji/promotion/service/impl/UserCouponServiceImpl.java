@@ -2,12 +2,17 @@ package com.tianji.promotion.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.tianji.common.exceptions.BadRequestException;
+import com.tianji.common.exceptions.BizIllegalException;
 import com.tianji.common.utils.UserContext;
 import com.tianji.promotion.domain.po.Coupon;
+import com.tianji.promotion.domain.po.ExchangeCode;
 import com.tianji.promotion.domain.po.UserCoupon;
+import com.tianji.promotion.enums.ExchangeCodeStatus;
 import com.tianji.promotion.mapper.CouponMapper;
 import com.tianji.promotion.mapper.UserCouponMapper;
+import com.tianji.promotion.service.IExchangeCodeService;
 import com.tianji.promotion.service.IUserCouponService;
+import com.tianji.promotion.utils.CodeUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,8 +33,10 @@ public class UserCouponServiceImpl extends ServiceImpl<UserCouponMapper, UserCou
     //因为在CouponServiceImpl中使用了IUserCouponService，所以这里使用CouponMapper防止循环依赖
     private final CouponMapper couponMapper;
 
+    private final IExchangeCodeService codeService;
+
     @Override
-    @Transactional
+    @Transactional//因为涉及到多个数据库操作，所以使用事务
     public void receiveCoupon(Long couponId) {
         // 1.查询优惠券
         Coupon coupon = couponMapper.selectById(couponId);
@@ -45,25 +52,84 @@ public class UserCouponServiceImpl extends ServiceImpl<UserCouponMapper, UserCou
         if (coupon.getIssueNum() >= coupon.getTotalNum()) {
             throw new BadRequestException("优惠券库存不足");
         }
-        // 4.校验每人限领数量是否超限
-        // 4.1.统计当前用户对当前优惠券的已经领取的数量
+        // 4.校验并生成用户券
         Long userId = UserContext.getUser();
+        checkAndCreateUserCoupon(coupon, userId, null);
+    }
+
+    /**
+     * 校验并持久化用户券到数据库
+     *
+     * @param coupon    优惠券
+     * @param userId    用户ID
+     * @param serialNum 兑换码ID
+     */
+    private void checkAndCreateUserCoupon(Coupon coupon, Long userId, Integer serialNum) {
+        // 1.校验每人限领数量
+        // 1.1.统计当前用户对当前优惠券的已经领取的数量
         Integer count = this.lambdaQuery()
                 .eq(UserCoupon::getUserId, userId)
-                .eq(UserCoupon::getCouponId, couponId)
+                .eq(UserCoupon::getCouponId, coupon.getId())
                 .count();
-        // 4.2.校验限领数量
+        // 1.2.校验限领数量
         if (count != null && count >= coupon.getUserLimit()) {
             throw new BadRequestException("超出领取数量");
         }
-        // 5.更新优惠券的已经发放的数量 + 1
-        couponMapper.incrIssueNum(couponId);
-        // 6.新增一个用户券记录
+        // 2.更新优惠券的已经发放的数量 + 1
+        couponMapper.incrIssueNum(coupon.getId());
+        // 3.新增一个用户券
         saveUserCoupon(coupon, userId);
-
-
+        // 4.如果是兑换码兑换的优惠券，更新兑换码状态
+        if (serialNum != null) {
+            codeService.lambdaUpdate()
+                    .set(ExchangeCode::getUserId, userId)
+                    .set(ExchangeCode::getStatus, ExchangeCodeStatus.USED)
+                    .eq(ExchangeCode::getId, serialNum)
+                    .update();
+        }
     }
 
+    @Override
+    @Transactional
+    public void exchangeCoupon(String code) {
+        // 1.校验并解析兑换码
+        long serialNum = CodeUtil.parseCode(code);
+        // 2.查询兑换码对应的优惠券id
+        ExchangeCode exchangeCode = codeService.getById(serialNum);
+        if (exchangeCode == null) {
+            throw new BizIllegalException("兑换码不存在！");
+        }
+        try {
+            // 3.校验是否已经兑换 这里直接执行setbit，通过返回值来判断是否兑换过
+            boolean exchanged = codeService.updateExchangeMark(serialNum, true);
+            if (exchanged) {
+                throw new BizIllegalException("兑换码已经被兑换过了");
+            }
+            // 4.是否过期
+            LocalDateTime now = LocalDateTime.now();
+            if (now.isAfter(exchangeCode.getExpiredTime())) {
+                throw new BizIllegalException("兑换码已经过期");
+            }
+            // 5.校验并生成用户券
+            // 5.1.查询优惠券id
+            Coupon coupon = couponMapper.selectById(exchangeCode.getExchangeTargetId());
+            // 5.2.查询用户
+            Long userId = UserContext.getUser();
+            // 5.3.校验并生成用户券，更新兑换码状态
+            checkAndCreateUserCoupon(coupon, userId, (int) serialNum);
+        } catch (Exception e) {
+            // 重置兑换的标记 0
+            codeService.updateExchangeMark(serialNum, false);
+            throw e;
+        }
+    }
+
+    /**
+     * 新增用户优惠券  持久化到数据库
+     *
+     * @param coupon 优惠券
+     * @param userId 用户ID
+     */
     private void saveUserCoupon(Coupon coupon, Long userId) {
         // 1.基本信息
         UserCoupon uc = new UserCoupon();
@@ -79,6 +145,6 @@ public class UserCouponServiceImpl extends ServiceImpl<UserCouponMapper, UserCou
         uc.setTermBeginTime(termBeginTime);
         uc.setTermEndTime(termEndTime);
         // 3.保存
-        save(uc);
+        this.save(uc);
     }
 }

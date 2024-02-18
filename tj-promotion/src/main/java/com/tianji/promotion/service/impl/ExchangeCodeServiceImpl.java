@@ -64,4 +64,10 @@ public class ExchangeCodeServiceImpl extends ServiceImpl<ExchangeCodeMapper, Exc
         stringRedisTemplate.opsForZSet().add(PromotionConstants.COUPON_RANGE_KEY, coupon.getId().toString(), maxSerialNum);
 
     }
+
+    @Override
+    public boolean updateExchangeMark(long serialNum, boolean mark) {
+        Boolean bit = stringRedisTemplate.opsForValue().setBit(PromotionConstants.COUPON_CODE_MAP_KEY, serialNum, mark);
+        return bit != null && bit;
+    }
 }
