@@ -13,4 +13,5 @@ import com.tianji.promotion.domain.po.UserCoupon;
  */
 public interface IUserCouponService extends IService<UserCoupon> {
 
+    void receiveCoupon(Long couponId);
 }
