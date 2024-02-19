@@ -15,6 +15,12 @@ import org.apache.ibatis.annotations.Update;
  */
 public interface CouponMapper extends BaseMapper<Coupon> {
 
-    @Update("UPDATE coupon SET issue_num = issue_num + 1 WHERE id = #{couponId}")
+    /**
+     * 更新优惠券的发放数量
+     *
+     * @param couponId 优惠券id
+     * @return 若更新成功则返回1，否则返回0
+     */
+    @Update("UPDATE coupon SET issue_num = issue_num + 1 WHERE id = #{couponId} AND issue_num < total_num")
     int incrIssueNum(@Param("couponId") Long couponId);
 }
