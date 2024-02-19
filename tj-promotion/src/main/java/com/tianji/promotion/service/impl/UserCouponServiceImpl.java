@@ -14,6 +14,7 @@ import com.tianji.promotion.service.IExchangeCodeService;
 import com.tianji.promotion.service.IUserCouponService;
 import com.tianji.promotion.utils.CodeUtil;
 import lombok.RequiredArgsConstructor;
+import org.springframework.aop.framework.AopContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -55,7 +56,9 @@ public class UserCouponServiceImpl extends ServiceImpl<UserCouponMapper, UserCou
         // 4.校验并生成用户券
         Long userId = UserContext.getUser();
         synchronized (userId.toString().intern()) {//加锁在事务之外
-            checkAndCreateUserCoupon(coupon, userId, null);
+            //获取并使用代理对象，以便调用checkAndCreateUserCoupon方法时能够触发事务
+            IUserCouponService userCouponService = (IUserCouponService) AopContext.currentProxy();
+            userCouponService.checkAndCreateUserCoupon(coupon, userId, null);
         }
     }
 
