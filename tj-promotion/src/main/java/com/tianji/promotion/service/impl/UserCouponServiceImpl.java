@@ -68,7 +68,7 @@ public class UserCouponServiceImpl extends ServiceImpl<UserCouponMapper, UserCou
      * @param userId    用户ID
      * @param serialNum 兑换码ID
      */
-    @MyLock(name = "lock:coupon")//AOP切面基于注解加锁，防止并发问题
+    @MyLock(name = "lock:coupon:uid:#{userId}")//AOP切面基于注解加锁，防止并发问题
     @Transactional // 进事务
     public void checkAndCreateUserCoupon(Coupon coupon, Long userId, Integer serialNum) {
         // 1.校验每人限领数量

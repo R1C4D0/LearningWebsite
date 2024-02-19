@@ -16,4 +16,8 @@ public @interface MyLock {
     long leaseTime() default -1;
 
     TimeUnit unit() default TimeUnit.SECONDS;
+
+    MyLockType lockType() default MyLockType.RE_ENTRANT_LOCK;// 默认可重入锁
+
+    MyLockStrategy lockStrategy() default MyLockStrategy.FAIL_AFTER_RETRY_TIMEOUT;// 默认超时失败
 }
